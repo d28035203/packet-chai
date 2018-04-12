@@ -1,44 +1,43 @@
 #!/usr/bin/env python3
-"""packet-chai client."""
+"""packet-chai client — connect and chat."""
+from __future__ import annotations
 
-from __future__ import print_function
+import argparse
+import select
 import socket
-import threading
 import sys
 
-HOST = "127.0.0.1"
-PORT = 5050
 
-def recv_loop(sock):
- while True:
- data = sock.recv(1024)
- if not data:
- print("\n[disconnected]")
- os_exit()
- break
- sys.stdout.write(data.decode("utf-8", "replace"))
- sys.stdout.flush()
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=5050)
+    args = p.parse_args()
 
-def os_exit():
- try:
- sys.exit(0)
- except SystemExit:
- pass
+    sock = socket.create_connection((args.host, args.port))
+    sock.setblocking(False)
+    print(f"connected to {args.host}:{args.port}  (type /quit to leave)")
+    try:
+        while True:
+            r, _, _ = select.select([sock, sys.stdin], [], [])
+            if sock in r:
+                data = sock.recv(4096)
+                if not data:
+                    print("server closed")
+                    break
+                sys.stdout.write(data.decode("utf-8", errors="replace"))
+                sys.stdout.flush()
+            if sys.stdin in r:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                sock.sendall(line.encode("utf-8"))
+                if line.strip() == "/quit":
+                    break
+    finally:
+        sock.close()
+    return 0
 
-def main():
- sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
- sock.connect((HOST, PORT))
- threading.Thread(target=recv_loop, args=(sock,), daemon=True).start()
- try:
- while True:
- line = sys.stdin.readline()
- if not line:
- break
- sock.sendall(line.encode("utf-8"))
- except KeyboardInterrupt:
- pass
- finally:
- sock.close()
 
 if __name__ == "__main__":
- main()
+    raise SystemExit(main())

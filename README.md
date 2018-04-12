@@ -1,14 +1,25 @@
 # Packet Chai
 
-**** Computer Networks — TCP sockets.
+Multi-client TCP chat: one server process broadcasts each line to every other connected client. Plain sockets, no encryption (lab tool, not a product).
 
-Multi-client TCP chat: one server broadcasts lines to everyone else.
+## Run
 
 ```bash
-python3 server.py   # terminal 1
-python3 client.py   # terminal 2+
+# terminal 1
+python3 server.py --port 5050
+
+# terminal 2 / 3
+python3 client.py --host 127.0.0.1 --port 5050
 ```
 
-Port `5050`. No encryption — lab toy, not a product.
+Type messages and press enter. `/quit` disconnects.
 
-MIT · practice project
+## Notes
+
+- Default port `5050`
+- Server is multithreaded (one thread per client)
+- No auth, no TLS — keep it on localhost
+
+## License
+
+MIT

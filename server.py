@@ -1,64 +1,79 @@
 #!/usr/bin/env python3
-"""packet-chai server — broadcast TCP chat (CN lab 2018)."""
+"""packet-chai server — multi-client TCP chat broadcaster."""
+from __future__ import annotations
 
-from __future__ import print_function
+import argparse
 import socket
 import threading
-import sys
+from typing import List, Tuple
 
-HOST = "0.0.0.0"
-PORT = 5050
-clients = []
+clients: List[Tuple[socket.socket, str]] = []
 lock = threading.Lock()
 
-def broadcast(msg, skip=None):
- with lock:
- dead = []
- for c in clients:
- if c is skip:
- continue
- try:
- c.sendall(msg)
- except Exception:
- dead.append(c)
- for c in dead:
- clients.remove(c)
 
-def handle(conn, addr):
- print("joined:", addr)
- try:
- conn.sendall(b"welcome to packet-chai. type something.\n")
- while True:
- data = conn.recv(1024)
- if not data:
- break
- line = b"[%s:%d] %s" % (addr[0].encode(), addr[1], data)
- sys.stdout.write(line.decode("utf-8", "replace"))
- sys.stdout.flush()
- broadcast(line, skip=conn)
- finally:
- with lock:
- if conn in clients:
- clients.remove(conn)
- conn.close()
- print("left:", addr)
+def broadcast(msg: str, skip: socket.socket | None = None) -> None:
+    data = (msg + "\n").encode("utf-8", errors="replace")
+    with lock:
+        dead = []
+        for conn, name in clients:
+            if conn is skip:
+                continue
+            try:
+                conn.sendall(data)
+            except OSError:
+                dead.append((conn, name))
+        for item in dead:
+            clients.remove(item)
+            try:
+                item[0].close()
+            except OSError:
+                pass
 
-def main():
- s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
- s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
- s.bind((HOST, PORT))
- s.listen(5)
- print("packet chai listening on %d" % PORT)
- try:
- while True:
- conn, addr = s.accept()
- with lock:
- clients.append(conn)
- threading.Thread(target=handle, args=(conn, addr), daemon=True).start()
- except KeyboardInterrupt:
- print("\nserver stopping")
- finally:
- s.close()
+
+def handle(conn: socket.socket, addr) -> None:
+    name = f"{addr[0]}:{addr[1]}"
+    with lock:
+        clients.append((conn, name))
+    broadcast(f"* {name} joined")
+    try:
+        f = conn.makefile("r", encoding="utf-8", errors="replace")
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            if line == "/quit":
+                break
+            broadcast(f"{name}: {line}", skip=conn)
+    finally:
+        with lock:
+            clients[:] = [(c, n) for c, n in clients if c is not conn]
+        try:
+            conn.close()
+        except OSError:
+            pass
+        broadcast(f"* {name} left")
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=5050)
+    args = p.parse_args()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((args.host, args.port))
+    sock.listen(16)
+    print(f"packet-chai listening on {args.host}:{args.port}")
+    try:
+        while True:
+            conn, addr = sock.accept()
+            threading.Thread(target=handle, args=(conn, addr), daemon=True).start()
+    except KeyboardInterrupt:
+        print("\nshutting down")
+    finally:
+        sock.close()
+    return 0
+
 
 if __name__ == "__main__":
- main()
+    raise SystemExit(main())
